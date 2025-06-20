@@ -2,7 +2,7 @@ from typing import Optional
 
 from spectator.meter import Meter
 from spectator.meter.meter_id import MeterId
-from spectator.writer.new_writer import new_writer, WriterUnion
+from spectator.writer.new_writer import WriterUnion
 
 
 class Gauge(Meter):
@@ -11,7 +11,7 @@ class Gauge(Meter):
     this duration of time. An optional ttl_seconds may be set to control the lifespan of these
     values. SpectatorD enforces a minimum TTL of 5 seconds."""
 
-    def __init__(self, meter_id: MeterId, writer: WriterUnion = new_writer("none"),
+    def __init__(self, meter_id: MeterId, writer: Optional[WriterUnion] = None,
                  ttl_seconds: Optional[int] = None) -> None:
         if ttl_seconds is None:
             meter_type_symbol = "g"

@@ -26,11 +26,14 @@ class Config:
     with one of the values listed above. Overriding the output location may be useful for integration testing.
     """
 
-    def __init__(self, location: str = "udp", extra_common_tags: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, location: str = "udp",
+                 extra_common_tags: Optional[Dict[str, str]] = None,
+                 buffer_size: int = 0) -> None:
+        self.location = self.calculate_location(location)
         if extra_common_tags is None:
             extra_common_tags = {}
         self.extra_common_tags = self.calculate_extra_common_tags(extra_common_tags)
-        self.location = self.calculate_location(location)
+        self.buffer_size = buffer_size
 
     @staticmethod
     def calculate_extra_common_tags(common_tags: Dict[str, str]) -> Dict[str, str]:

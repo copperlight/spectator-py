@@ -1,21 +1,30 @@
 import socket
 import threading
+import time
 from ipaddress import ip_address, IPv6Address
-from typing import Tuple
+from typing import Optional
+from urllib.parse import urlparse
 
 from spectator.writer import Writer
+from spectator.writer.line_buffer import LineBuffer
 
 
 class UdpWriter(Writer):
     """Writer that outputs data to a UDP socket."""
 
-    def __init__(self, location: str, address: Tuple[str, int]) -> None:
+    def __init__(self, location: str, buffer_size: int = 0, is_global: bool = False) -> None:
         super().__init__()
-        self._logger.debug("initialize UdpWriter to %s", location)
-        self._address = address
+        if is_global:
+            self._logger.debug("initialize GlobalRegistry UdpWriter to %s (buffer_size=%s)", location, buffer_size)
+        else:
+            self._logger.info("initialize UdpWriter to %s (buffer_size=%s)", location, buffer_size)
+        self._buffer: Optional[LineBuffer] = LineBuffer(buffer_size) if buffer_size > 0 else None
+        self._thread = threading.Thread(target=self._background_flush, daemon=True)
         self._lock = threading.Lock()
         self._sock = None
 
+        parsed = urlparse(location)
+        self._address = (parsed.hostname, parsed.port)
         try:
             if type(ip_address(self._address[0])) is IPv6Address:
                 self._family = socket.AF_INET6
@@ -25,22 +34,53 @@ class UdpWriter(Writer):
             # anything that does not appear to be an IPv4 or IPv6 address (i.e. hostnames)
             self._family = socket.AF_INET
 
-    def write(self, line: str) -> None:
-        self._logger.debug("write line=%s", line)
+        if self._buffer is not None:
+            self._logger.info("start UdpWriter background flush, every 5 seconds")
+            self._thread.start()
 
-        try:
-            # lazily instantiate the socket, in a thread-safe manner. this is necessary, because
-            # the legacy GlobalRegistry will configure a UdpWriter upon `import spectator`.
-            if self._sock is None:
+    def _background_flush(self) -> None:
+        while True:
+            time.sleep(5)
+            if len(self._buffer) > 0:
+                with self._lock:
+                    try:
+                        self._sock.sendto(bytes(self._buffer.flush(), encoding="utf-8"), self._address)
+                    except IOError:
+                        self._logger.error("failed to write buffer from background flush")
+
+    def _acquire_socket(self) -> None:
+        # lazily instantiate the socket, in a thread-safe manner. this is necessary, because
+        # the legacy GlobalRegistry will configure a UdpWriter upon `import spectator`.
+        if self._sock is None:
+            try:
                 with self._lock:
                     if self._sock is None:
                         self._sock = socket.socket(family=self._family, type=socket.SOCK_DGRAM)
+            except Exception as e:
+                self._logger.error("exception during socket acquire: %s", e)
 
+    def _write_buffer(self, line: str) -> None:
+        with self._lock:
+            if self._buffer.append(line):
+                try:
+                    self._sock.sendto(bytes(self._buffer.flush(), encoding="utf-8"), self._address)
+                except IOError:
+                    self._logger.error("failed to write line=%s", line)
+
+    def _write_socket(self, line: str) -> None:
+        try:
             self._sock.sendto(bytes(line, encoding="utf-8"), self._address)
         except IOError:
             self._logger.error("failed to write line=%s", line)
-        except Exception as e:
-            self._logger.error("exception during write: %s", e)
+
+    def write(self, line: str) -> None:
+        self._logger.debug("write line=%s", line)
+        self._acquire_socket()
+
+        if self._buffer is not None:
+            self._write_buffer(line)
+        else:
+            self._write_socket(line)
 
     def close(self) -> None:
         self._sock.close()

@@ -48,4 +48,4 @@ from spectator.writer.udp_writer import UdpWriter
 # configuration, to supply a different output location or a set of extra common tags. Or, keep the
 # defaults and use the Registry as-is.
 
-GlobalRegistry = Registry()
+GlobalRegistry = Registry(is_global=True)
